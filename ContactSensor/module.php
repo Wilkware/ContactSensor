@@ -78,10 +78,10 @@ class ContactSensor extends IPSModuleStrict
 
         // Delay trigger
         $this->RegisterTimer('DelayTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Delay', 0);");
-        
+
         // Repeat trigger
         $this->RegisterTimer('RepeatTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Repeat', 0);");
-        
+
         // Switch trigger
         $this->RegisterTimer('SwitchTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Switch', 0);");
 
@@ -569,7 +569,7 @@ class ContactSensor extends IPSModuleStrict
 
         // debug
         $this->LogDebug(__FUNCTION__, 'Image:' . $img . ', Text: ' . $txt . ', SDB:' . $sdb . ', SWF:' . $swf . ', Time:' . $time);
-        
+
         // send notify?
         if ($isNotify && $webfront != 0 && $swf) {
             if ($this->IsWebFrontVisuInstance($webfront)) {
@@ -579,7 +579,7 @@ class ContactSensor extends IPSModuleStrict
                 VISU_PostNotificationEx($webfront, $msgtitle, $txt, $img, 'buzzer', 0);
             }
         }
-        
+
         // send message?
         if ($isDashboard && $msgscript != 0 && $sdb) {
             // remove old message?
@@ -644,7 +644,7 @@ class ContactSensor extends IPSModuleStrict
                 $reduction |= GetValue($oid);
             }
         }
-        
+
         // contact state
         $vid = $this->ReadPropertyInteger('StateVariable');
         if ($vid != 0) {
@@ -654,12 +654,12 @@ class ContactSensor extends IPSModuleStrict
         if ($vid != 0) {
             $sensors = $sensors + (GetValue($vid) ? 2 : 0);
         }
-        
+
         // deactivate all timer
         $this->SetTimerInterval('DelayTrigger', 0);
         $this->SetTimerInterval('RepeatTrigger', 0);
         $this->SetTimerInterval('SwitchTrigger', 0);
-        
+
         // set sensor state and open/close state
         $this->WriteAttributeInteger('Sensors', $sensors);
         $this->WriteAttributeBoolean('Reduction', $reduction);
