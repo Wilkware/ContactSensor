@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="de">
+
+<head>
+    <title>ContactSensor</title>
+    <meta charset="utf-8" />
+    <style>
+        :root {
+            --margin-top: 60px;
+            --margin-side: 20px;
+            --margin-bottom: 15px;
+            --color-closed: #6DD68A;
+            --color-open: #11A0F3;
+            --color-delay: #E8C44A;
+            --color-reduced: var(--accent-color, #EE7203);
+            --color-off: #9E9E9E;
+            --color-phase: var(--color-closed);
+        }
+
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0px;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        #card {
+            width: 100%;
+            height: 100%;
+            padding: var(--margin-top) var(--margin-side) var(--margin-bottom);
+        }
+
+        #content {
+            width: 100%;
+            height: 100%;
+            container-type: size;
+        }
+
+        /* ── Layout: two columns, image as sub tile (like Almanac) ───────── */
+        .cs-layout {
+            display: grid;
+            grid-template-columns: 30% 1fr;
+            gap: 12px;
+            width: 100%;
+            height: 100%;
+        }
+
+        .cs-image {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 0;
+            min-height: 0;
+            padding: 8px;
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--content-color) 8%, transparent);
+            container-type: size;
+        }
+
+        /* Sizes inside scale with the info column (width and height) */
+        .cs-info {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            container-type: size;
+        }
+
+        /* ── Layout: very wide (e.g. 8x3) → narrower image column ────────── */
+        @container (min-aspect-ratio: 2.5) {
+            .cs-layout {
+                grid-template-columns: 25% 1fr;
+            }
+        }
+
+        /* ── Layout: tall or square → one column ─────────────────────────── */
+        @container (max-aspect-ratio: 1.30) {
+            .cs-layout {
+                grid-template-columns: 1fr;
+                grid-template-rows: 42% 1fr;
+                gap: 8px;
+            }
+        }
+
+        /* ── Image: scales with the column ───────────────────────────────── */
+        #state-icon {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: min(80cqw, 62cqh);
+            line-height: 1;
+            color: var(--color-phase);
+            transition: color 0.18s;
+        }
+
+        #state-icon svg {
+            color: var(--color-phase);
+        }
+
+        /* ── Header: label + switch ──────────────────────────────────────── */
+        .cs-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .cs-head-label {
+            font-size: clamp(8px, min(3.5cqw, 9cqh), 12px);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            line-height: 1.2;
+            filter: brightness(0.6);
+            white-space: nowrap;
+        }
+
+        #switch {
+            position: relative;
+            right: 4px;
+            flex-shrink: 0;
+        }
+
+        .cbx {
+            display: none;
+        }
+
+        .lbl {
+            position: relative;
+            display: block;
+            height: 14px;
+            width: 32px;
+            background: rgba(96, 125, 139, 0.5);
+            border-radius: 100px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .lbl:after {
+            position: absolute;
+            left: -2px;
+            top: -2px;
+            display: block;
+            width: 18px;
+            height: 18px;
+            border-radius: 100px;
+            background: rgba(96, 125, 139, 1.0);
+            box-shadow: 0px 3px 3px rgba(0, 0, 0, 0.05);
+            content: '';
+            transition: all 0.3s ease;
+        }
+
+        .lbl:active:after {
+            transform: scale(1.15, 0.85);
+        }
+
+        .cbx:checked~label {
+            background: color-mix(in srgb, var(--accent-color), transparent 50%);
+        }
+
+        .cbx:checked~label:after {
+            left: 18px;
+            background: color-mix(in srgb, var(--accent-color), transparent 0%);
+        }
+
+        /* ── State: text + countdown ─────────────────────────────────────── */
+        .cs-state {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: clamp(2px, 2cqh, 6px);
+            padding-top: clamp(1px, 1cqh, 4px);
+        }
+
+        .cs-state-text {
+            color: color-mix(in srgb, var(--color-phase) 80%, var(--content-color));
+            transition: color 0.18s;
+            font-size: clamp(11px, min(6cqw, 15cqh), 20px);
+            line-height: 1.2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+
+        /* ── Countdown: neutral pill below the image ──────────────────────── */
+        .cs-icon-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            width: 100%;
+            height: 100%;
+            line-height: 1;
+        }
+
+        .cs-badge {
+            font-size: clamp(9px, 12cqh, 13px);
+            line-height: 1.3;
+            color: color-mix(in srgb, var(--content-color) 85%, transparent);
+            background: color-mix(in srgb, var(--content-color) 10%, transparent);
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .cs-badge.inactive {
+            opacity: 0.45;
+        }
+
+        .cs-badge.inactive svg {
+            color: var(--content-color);
+        }
+
+        .cs-badge svg {
+            color: var(--color-phase);
+        }
+
+        /* ── Settings: bottom (like ClimateControl modes) ────────────────── */
+        .cs-setting-row {
+            display: flex;
+            flex-shrink: 0;
+            align-items: flex-end;
+            justify-content: space-between;
+            width: 100%;
+        }
+
+        .cs-setting-button {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: clamp(1px, 2cqh, 4px);
+            cursor: pointer;
+            padding: clamp(2px, 2cqh, 5px) clamp(2px, 1.5cqw, 8px);
+            border-radius: clamp(5px, 5cqh, 10px);
+            transition: background 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .cs-setting-button:hover {
+            background: color-mix(in srgb, var(--content-color) 6%, transparent);
+        }
+
+        .cs-setting-button svg,
+        .cs-setting-button i {
+            font-size: clamp(14px, min(9cqw, 22cqh), 32px);
+            color: color-mix(in srgb, var(--content-color) 35%, transparent);
+            transition: color 0.18s;
+        }
+
+        .cs-setting-label {
+            font-size: clamp(8px, min(3.6cqw, 9cqh), 13px);
+            line-height: 1.2;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--content-color);
+            opacity: 0.45;
+            white-space: nowrap;
+            transition: color 0.18s, opacity 0.18s;
+        }
+
+        .cs-setting-button.active svg,
+        .cs-setting-button.active i,
+        .cs-setting-button.active .cs-setting-label {
+            color: var(--color-setting);
+            opacity: 1;
+        }
+
+        @container (max-height: 50px) {
+            .cs-setting-label {
+                display: none;
+            }
+        }
+
+        /* ── Popup: slider overlay ───────────────────────────────────────── */
+        #popup {
+            position: absolute;
+            top: var(--margin-top);
+            right: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 20;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 var(--margin-side) var(--margin-bottom);
+            container-type: size;
+        }
+
+        #popup.open {
+            display: flex;
+        }
+
+        .cs-popup-card {
+            width: min(100%, 360px);
+            max-height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: clamp(4px, 6cqh, 12px);
+            padding: clamp(6px, 7cqh, 14px) clamp(10px, 4cqw, 16px);
+            border-radius: clamp(8px, 8cqh, 12px);
+            color: var(--content-color);
+            background: color-mix(in srgb, var(--card-color, #2B2C30) 90%, #000000);
+            border: 1px solid color-mix(in srgb, var(--content-color) 10%, transparent);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+        }
+
+        .cs-popup-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .cs-popup-title {
+            font-size: clamp(9px, 9cqh, 12px);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            opacity: 0.6;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .cs-popup-value {
+            font-size: clamp(14px, 20cqh, 28px);
+            line-height: 1;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+        }
+
+        #popup-slider {
+            width: 100%;
+            accent-color: var(--accent-color, #EE7203);
+            cursor: pointer;
+        }
+
+        #popup-switch {
+            display: none;
+        }
+
+        #popup-switch.visible {
+            display: block;
+        }
+    </style>
+    <script src="/icons.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+    <div id="card">
+        <div id="content">
+            <div class="cs-layout">
+                <div class="cs-image">
+                    <div class="cs-icon-wrap">
+                        <span id="state-icon"></span>
+                        <div id="countdown" class="cs-badge inactive">
+                            <i class="fa-light fa-hourglass-half"></i>
+                            <span id="countdown-text"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="cs-info">
+                    <div class="cs-head">
+                        <span class="cs-head-label" id="label-status"></span>
+                        <div id="switch">
+                            <input type="checkbox" id="toggle" class="cbx" />
+                            <label for="toggle" class="lbl" id="toggle-label"></label>
+                        </div>
+                    </div>
+                    <div class="cs-state">
+                        <div id="state-text" class="cs-state-text"></div>
+                    </div>
+                    <div class="cs-setting-row">
+                        <div class="cs-setting-button" id="button-valve" style="--color-setting: #6DD68A">
+                            <i class="fa-light fa-arrow-down-short-wide"></i>
+                            <span class="cs-setting-label" id="label-valve"></span>
+                        </div>
+                        <div class="cs-setting-button" id="button-temperature" style="--color-setting: #F35A2C">
+                            <i class="fa-light fa-temperature-half"></i>
+                            <span class="cs-setting-label" id="label-temperature"></span>
+                        </div>
+                        <div class="cs-setting-button" id="button-repeat" style="--color-setting: #5BA8E8">
+                            <i class="fa-light fa-arrows-rotate"></i>
+                            <span class="cs-setting-label" id="label-repeat"></span>
+                        </div>
+                        <div class="cs-setting-button" id="button-switchback" style="--color-setting: #E89A4A">
+                            <i class="fa-light fa-clock-rotate-left"></i>
+                            <span class="cs-setting-label" id="label-switchback"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="popup">
+            <div class="cs-popup-card">
+                <div class="cs-popup-head">
+                    <span class="cs-popup-title" id="popup-title"></span>
+                    <div id="popup-switch">
+                        <input type="checkbox" id="popup-toggle" class="cbx" />
+                        <label for="popup-toggle" class="lbl"></label>
+                    </div>
+                </div>
+                <div class="cs-popup-value" id="popup-value"></div>
+                <input type="range" id="popup-slider" min="0" max="0" step="1" value="0" />
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── INIT: set root/style variables ───────────────────────────────────
+        const p = new URLSearchParams(location.search);
+        const root = document.documentElement;
+        const m = {
+            margintop: ['--margin-top'],
+            marginside: ['--margin-side'],
+            marginbottom: ['--margin-bottom']
+        };
+        for (const k in m) {
+            const v = p.get(k);
+            if (!v) continue; m[k].forEach(c => root.style.setProperty(c, v));
+        }
+
+        // ── ICONS: 0 = window, 1 = door, 2 = patio door, 3 = roof window, 4 = other
+        const ICONS = {
+            0: { closed: 'window-frame', open: 'window-frame-open' },
+            1: { closed: 'door-closed', open: 'door-open' },
+            2: { closed: 'terrace-door-closed', open: 'terrace-door-open' },
+            3: { closed: 'window-roof-closed', open: 'window-roof-open' },
+            4: { closed: 'sensor', open: 'sensor-on' }
+        };
+
+        // ── ICON: FontAwesome icon mapping (like ClimateControl) ─────────────
+        function getIconType(iconName) {
+            if (!iconName || iconName === 'Transparent') {
+                return { type: 'none', classes: '' };
+            }
+            const raw = String(iconName).trim();
+            const iconMapping = window.iconMapping || {};
+            const mapped = iconMapping[raw] ?? raw;
+            const iconClass = String(mapped).trim();
+            const tokens = iconClass.split(/\s+/).filter(Boolean);
+            // 1) Is there an explicit prefix in the string?
+            if (tokens.some(t => t === 'fak' || t === 'fa-kit')) {
+                return { type: 'kit', classes: (tokens.includes('fa-fw') ? '' : 'fa-fw ') + iconClass };
+            }
+            if (tokens.some(t => t === 'fa-light' || t === 'fal')) {
+                return { type: 'fa-light', classes: (tokens.includes('fa-fw') ? '' : 'fa-fw ') + iconClass };
+            }
+            // 2) No prefix → FA-API: Does it exist as "fal"?
+            const baseName = iconClass.startsWith('fa-') ? iconClass.substring(3) : iconClass;
+            try {
+                if (window.FontAwesome && typeof window.FontAwesome.findIconDefinition === 'function') {
+                    if (window.FontAwesome.findIconDefinition({ prefix: 'fal', iconName: baseName })) {
+                        return { type: 'fa-light', classes: `fa-fw fa-light fa-${baseName}` };
+                    }
+                }
+            } catch (e) {}
+            // 3) Not in fal → Kit icon
+            return { type: 'kit', classes: `fa-fw fa-kit fak fa-${baseName}` };
+        }
+
+        // ── STATE: ───────────────────────────────────────────────────────────
+        const PHASES = {
+            closed:  { color: '--color-closed',  open: false },
+            open:    { color: '--color-open',    open: true },
+            delay:   { color: '--color-delay',   open: true },
+            waiting: { color: '--color-open',    open: true },
+            reduced: { color: '--color-reduced', open: true },
+            off:     { color: '--color-off',     open: false }
+        };
+        let texts = {};
+        let type = 0;
+        let automatic = false;
+        let valveCheck = false;
+        let temperatureCheck = false;
+        let temperatureDifference = 0;
+        let differenceMin = 0;
+        let differenceMax = 30;
+        let repeatInterval = 0;
+        let switchBack = 0;
+        let repeatOptions = [{ value: 0, caption: 'Off' }];
+        let switchBackOptions = [{ value: 0, caption: 'Off' }];
+        let remaining = 0;
+        let preset = 0;
+        let received = 0;
+        let ticker = null;
+        let popup = null;
+
+        // ── RENDER: ──────────────────────────────────────────────────────────
+        function caption(options, value) {
+            const option = options.find(o => o.value === value);
+            return option ? option.caption : String(value);
+        }
+
+        function renderSettings() {
+            document.getElementById('label-status').textContent = texts.status || '';
+            document.getElementById('toggle').checked = automatic;
+            document.getElementById('toggle-label').title = texts.automatic || '';
+
+            const set = (id, active, label, title) => {
+                const button = document.getElementById('button-' + id);
+                button.classList.toggle('active', active);
+                button.title = title || '';
+                document.getElementById('label-' + id).textContent = label;
+            };
+            set('valve', valveCheck, texts.valve || '', texts.valveCheck);
+            set('temperature', temperatureCheck, temperatureDifference + ' °C', texts.temperatureCheck);
+            set('repeat', repeatInterval > 0, caption(repeatOptions, repeatInterval), texts.repeat);
+            set('switchback', switchBack > 0, caption(switchBackOptions, switchBack), texts.switchBack);
+        }
+
+        function renderPhase(phase, state) {
+            const config = PHASES[phase] || PHASES.closed;
+            const icons = ICONS[type] || ICONS[0];
+            const name = config.open ? icons.open : icons.closed;
+            const icon = document.getElementById('state-icon');
+            // icons.js replaces <i> with <svg>, so the icon has to be recreated instead of changing the class
+            if (icon.dataset.icon !== name) {
+                icon.dataset.icon = name;
+                icon.innerHTML = '<i class="' + getIconType(name).classes + '"></i>';
+            }
+            root.style.setProperty('--color-phase', 'var(' + config.color + ')');
+            document.getElementById('state-text').textContent = state;
+        }
+
+        function formatTime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const min = Math.floor((seconds % 3600) / 60);
+            const s = String(seconds % 60).padStart(2, '0');
+            return h > 0 ? h + ':' + String(min).padStart(2, '0') + ':' + s : min + ':' + s;
+        }
+
+        // Always visible: running timer, otherwise the configured reaction time (inactive)
+        function renderCountdown() {
+            const pill = document.getElementById('countdown');
+            const text = document.getElementById('countdown-text');
+            const left = Math.max(0, remaining - Math.floor((Date.now() - received) / 1000));
+            if (left <= 0) {
+                pill.classList.add('inactive');
+                text.textContent = preset > 0 ? formatTime(preset) : '--:--';
+                if (ticker) {
+                    clearInterval(ticker);
+                    ticker = null;
+                }
+                return;
+            }
+            pill.classList.remove('inactive');
+            text.textContent = formatTime(left);
+            if (!ticker) {
+                ticker = setInterval(renderCountdown, 1000);
+            }
+        }
+
+        // ── POPUP: slider overlay ────────────────────────────────────────────
+        // values: list of {value, caption}, the slider position is the index
+        function openPopup(config) {
+            popup = config;
+            const slider = document.getElementById('popup-slider');
+            slider.max = config.values.length - 1;
+            slider.value = Math.max(0, config.values.findIndex(o => o.value === config.current));
+            document.getElementById('popup-title').textContent = config.title;
+            document.getElementById('popup-switch').classList.toggle('visible', config.switchIdent !== undefined);
+            document.getElementById('popup-toggle').checked = !!config.switchValue;
+            renderPopupValue();
+            document.getElementById('popup').classList.add('open');
+        }
+
+        function renderPopupValue() {
+            const slider = document.getElementById('popup-slider');
+            document.getElementById('popup-value').textContent = popup.values[slider.value].caption;
+        }
+
+        function closePopup() {
+            document.getElementById('popup').classList.remove('open');
+            popup = null;
+        }
+
+        // Close on any click outside the card (also in the title area), except the buttons that open it
+        document.addEventListener('click', e => {
+            if (popup && !e.target.closest('.cs-popup-card') && !e.target.closest('.cs-setting-button')) closePopup();
+        });
+        document.getElementById('popup-slider').addEventListener('input', renderPopupValue);
+        document.getElementById('popup-slider').addEventListener('change', e => {
+            if (popup) requestAction(popup.ident, popup.values[e.target.value].value);
+        });
+        document.getElementById('popup-toggle').addEventListener('change', e => {
+            if (popup && popup.switchIdent) requestAction(popup.switchIdent, e.target.checked);
+        });
+
+        // ── EVENTS: ──────────────────────────────────────────────────────────
+        document.getElementById('toggle').addEventListener('change', function () {
+            requestAction('Automatic', this.checked);
+        });
+        document.getElementById('button-valve').addEventListener('click', () => {
+            requestAction('ValveCheck', !valveCheck);
+        });
+        document.getElementById('button-temperature').addEventListener('click', () => {
+            const values = [];
+            for (let v = differenceMin; v <= differenceMax; v++) values.push({ value: v, caption: v + ' °C' });
+            openPopup({
+                title: texts.temperatureDifference || '',
+                ident: 'TemperatureDifference',
+                values: values,
+                current: temperatureDifference,
+                switchIdent: 'TemperatureCheck',
+                switchValue: temperatureCheck
+            });
+        });
+        document.getElementById('button-repeat').addEventListener('click', () => {
+            openPopup({ title: texts.repeat || '', ident: 'RepeatInterval', values: repeatOptions, current: repeatInterval });
+        });
+        document.getElementById('button-switchback').addEventListener('click', () => {
+            openPopup({ title: texts.switchBack || '', ident: 'SwitchBack', values: switchBackOptions, current: switchBack });
+        });
+
+        // ── SDK: handleMessage (data transfer) ───────────────────────────────
+        function handleMessage(encodedData) {
+            const data = JSON.parse(encodedData);
+            let phase = null;
+            let state = '';
+            for (const parameter in data) {
+                const value = data[parameter];
+                switch (parameter) {
+                    case 'texts': texts = value; break;
+                    case 'type': type = parseInt(value); break;
+                    case 'phase': phase = value; break;
+                    case 'state': state = value; break;
+                    case 'remaining':
+                        remaining = parseInt(value);
+                        received = Date.now();
+                        break;
+                    case 'preset': preset = parseInt(value); break;
+                    case 'Automatic': automatic = !!value; break;
+                    case 'ValveCheck': valveCheck = !!value; break;
+                    case 'TemperatureCheck': temperatureCheck = !!value; break;
+                    case 'TemperatureDifference': temperatureDifference = parseInt(value); break;
+                    case 'RepeatInterval': repeatInterval = parseInt(value); break;
+                    case 'SwitchBack': switchBack = parseInt(value); break;
+                    case 'DifferenceMin': differenceMin = parseInt(value); break;
+                    case 'DifferenceMax': differenceMax = parseInt(value); break;
+                    case 'RepeatOptions':repeatOptions = value; break;
+                    case 'SwitchBackOptions': switchBackOptions = value; break;
+                    default: break;
+                }
+            }
+            if (phase !== null) renderPhase(phase, state);
+            renderCountdown();
+            renderSettings();
+            if (popup && popup.switchIdent) {
+                document.getElementById('popup-toggle').checked = temperatureCheck;
+            }
+        }
+    </script>
+</body>
+
+</html>
