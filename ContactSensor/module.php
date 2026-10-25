@@ -44,6 +44,18 @@ class ContactSensor extends IPSModuleStrict
     /** @var int Sensor type: other or mixed (generic sensor icon) */
     private const SENSOR_OTHER = 4;
 
+    /** @var int Radiator mode: switch the window state variable */
+    private const RADIATOR_WINDOW = 0;
+
+    /** @var int Radiator mode: lower the setpoint temperature */
+    private const RADIATOR_SETPOINT = 1;
+
+    /** @var float Default setpoint temperature during reduction */
+    private const REDUCTION_TEMPERATURE = 12.0;
+
+    /** @var float Max. deviation (K) at which the setpoint still counts as lowered */
+    private const SETPOINT_TOLERANCE = 0.5;
+
     /** @var string Status column: everything fine */
     private const STATE_OK = 'OK';
 
@@ -177,6 +189,7 @@ class ContactSensor extends IPSModuleStrict
         // Internal state
         $this->RegisterAttributeBoolean('Reduction', false);
         $this->RegisterAttributeInteger('Message', 0);
+        $this->RegisterAttributeString('Setpoints', '{}');
 
         // Set visualization type to 1, as we want to offer HTML
         $this->SetVisualizationType(1);
@@ -250,6 +263,18 @@ class ContactSensor extends IPSModuleStrict
             $config['RadiatorVariables'] = json_encode($radiators);
         }
 
+        // Status column is computed on every form load, a saved (stale) value would override it
+        foreach (['SensorVariables', 'RadiatorVariables'] as $property) {
+            $list = json_decode((string) ($config[$property] ?? '[]'), true);
+            if (is_array($list)) {
+                foreach ($list as &$entry) {
+                    unset($entry['Status']);
+                }
+                unset($entry);
+                $config[$property] = json_encode($list);
+            }
+        }
+
         return json_encode($data);
     }
 
@@ -284,6 +309,14 @@ class ContactSensor extends IPSModuleStrict
                 $element['values'] = $values;
             });
         }
+
+        // Edit dialog of the radiators is generated per row, the reduction temperature is only enabled for setpoints
+        $this->ModifyFormElement($form['elements'], 'RadiatorVariables', function (array &$element): void
+        {
+            $element['form'] = 'return array_map(fn (array $e): array => (($e[\'name\'] ?? \'\') === \'Temperature\') ? '
+                . 'array_merge($e, [\'enabled\' => ((int) ($RadiatorVariables[\'Mode\'] ?? 0)) === ' . self::RADIATOR_SETPOINT . ']) : $e, '
+                . var_export($element['form'], true) . ');';
+        });
 
         // Extract version
         $ins = IPS_GetInstance($this->InstanceID);
@@ -464,11 +497,26 @@ class ContactSensor extends IPSModuleStrict
                 $this->Restore();
                 break;
             case 'TestReduction':
-                $this->Reduce();
+                if (empty($this->GetRadiators()) && ($this->ReadPropertyInteger('ExecScript') < self::IPS_MIN_ID)) {
+                    $this->EchoMessage('No radiators or script configured!');
+                    return;
+                }
+                $failed = $this->Reduce();
+                $this->EchoMessage(($failed === 0) ? 'Temperature lowered!' : 'Temperature lowered, but %d radiator(s) could not be switched (see message log)!', $failed);
                 break;
             case 'TestRestore':
-                $this->Restore();
+                if (!$this->ReadAttributeBoolean('Reduction')) {
+                    // Still stops a running delay or repeat timer
+                    $this->Restore();
+                    $this->EchoMessage('No reduction active!');
+                    break;
+                }
+                $failed = $this->Restore();
+                $this->EchoMessage(($failed === 0) ? 'Lowering cancelled!' : 'Lowering cancelled, but %d radiator(s) could not be switched (see message log)!', $failed);
                 break;
+            case 'RadiatorMode':
+                $this->UpdateFormField('Temperature', 'enabled', (int) $value === self::RADIATOR_SETPOINT);
+                return;
             case 'Automatic':
                 $this->SetValueBoolean($ident, (bool) $value);
                 if (!$value) {
@@ -674,15 +722,15 @@ class ContactSensor extends IPSModuleStrict
     /**
      * Reduce - lowers the heater temperature (without checking conditions).
      *
-     * @return void
+     * @return int Number of radiators that could not be switched
      */
-    private function Reduce(): void
+    private function Reduce(): int
     {
         $this->LogDebug(__FUNCTION__, 'Function was called!');
         $this->SetTimerInterval('DelayTrigger', 0);
         $this->SetTimerInterval('RepeatTrigger', 0);
 
-        $this->SwitchRadiators(true);
+        $failed = $this->SwitchRadiators(true);
         $this->ExecuteScript(true);
         $this->SetReduction(true);
 
@@ -693,14 +741,15 @@ class ContactSensor extends IPSModuleStrict
         }
 
         $this->SendMessage(true);
+        return $failed;
     }
 
     /**
      * Restore - set heater back to his programm temperature.
      *
-     * @return void
+     * @return int Number of radiators that could not be switched
      */
-    private function Restore(): void
+    private function Restore(): int
     {
         $this->LogDebug(__FUNCTION__, 'Function was called!');
         $this->SetBuffer('Interrupted', json_encode(false));
@@ -714,28 +763,38 @@ class ContactSensor extends IPSModuleStrict
 
         if (!$this->ReadAttributeBoolean('Reduction')) {
             $this->LogDebug(__FUNCTION__, 'No action necessary, no reduction active!');
-            return;
+            return 0;
         }
 
-        $this->SwitchRadiators(false);
+        $failed = $this->SwitchRadiators(false);
         $this->ExecuteScript(false);
         $this->SetReduction(false);
         $this->SendMessage(false);
+        return $failed;
     }
 
     /**
-     * Sets the window state of all radiators via RequestAction.
+     * Switches all radiators via RequestAction (window state or setpoint temperature).
      *
      * @param bool $open True for OPEN (lower), false for CLOSE (restore)
      *
-     * @return void
+     * @return int Number of radiators that could not be switched
      */
-    private function SwitchRadiators(bool $open): void
+    private function SwitchRadiators(bool $open): int
     {
-        foreach ($this->GetListVariables('RadiatorVariables') as $id) {
+        $failed = 0;
+        foreach ($this->GetRadiators() as $radiator) {
+            $id = $radiator['VariableID'];
             $vid = $this->ResolveRadiatorVariable($id);
             if ($vid === 0) {
                 $this->LogMessage('Radiator variable #' . $id . ' does not exist!', KL_ERROR);
+                $failed++;
+                continue;
+            }
+            if ($radiator['Mode'] === self::RADIATOR_SETPOINT) {
+                if (!$this->SwitchSetpoint($vid, $radiator['Temperature'], $open)) {
+                    $failed++;
+                }
                 continue;
             }
             $value = match (IPS_GetVariable($vid)['VariableType']) {
@@ -746,14 +805,101 @@ class ContactSensor extends IPSModuleStrict
             };
             if ($value === null) {
                 $this->LogMessage('Radiator variable #' . $vid . ' has an unsupported type!', KL_ERROR);
+                $failed++;
                 continue;
             }
             $ret = @RequestAction($vid, $value);
             if ($ret === false) {
                 $this->LogMessage('Radiator variable #' . $vid . ' could not be switched by RequestAction!', KL_ERROR);
+                $failed++;
             }
             $this->LogDebug(__FUNCTION__, 'Radiator #' . $vid . ' => ' . ($open ? 'OPEN' : 'CLOSE') . ' (' . $this->Stringify($ret) . ')');
         }
+        return $failed;
+    }
+
+    /**
+     * Lowers the setpoint temperature of a radiator or restores the remembered value.
+     * The restore is skipped if the setpoint was changed during the reduction (manually or by a schedule).
+     *
+     * @param int   $vid         Setpoint variable ID
+     * @param float $temperature Setpoint temperature during reduction
+     * @param bool  $open        True for OPEN (lower), false for CLOSE (restore)
+     *
+     * @return bool False if the setpoint could not be switched
+     */
+    private function SwitchSetpoint(int $vid, float $temperature, bool $open): bool
+    {
+        $type = IPS_GetVariable($vid)['VariableType'];
+        if (!in_array($type, [VARIABLETYPE_INTEGER, VARIABLETYPE_FLOAT], true)) {
+            $this->LogMessage('Setpoint variable #' . $vid . ' has an unsupported type!', KL_ERROR);
+            return false;
+        }
+        $setpoints = json_decode($this->ReadAttributeString('Setpoints'), true);
+        if (!is_array($setpoints)) {
+            $setpoints = [];
+        }
+        $current = (float) GetValue($vid);
+        // Devices round the setpoint to their step size (e.g. 0.5 K for HmIP)
+        $lowered = abs($current - $temperature) < self::SETPOINT_TOLERANCE;
+
+        if ($open) {
+            // Already lowered (e.g. repeated test), then keep the remembered value
+            if (!$lowered || !isset($setpoints[$vid])) {
+                $setpoints[$vid] = $current;
+            }
+            $value = $temperature;
+        } else {
+            if (!isset($setpoints[$vid])) {
+                $this->LogDebug(__FUNCTION__, 'Setpoint #' . $vid . ': no remembered value!');
+                return true;
+            }
+            $value = (float) $setpoints[$vid];
+            unset($setpoints[$vid]);
+            $this->WriteAttributeString('Setpoints', json_encode($setpoints));
+            if (!$lowered) {
+                $this->LogDebug(__FUNCTION__, 'Setpoint #' . $vid . ' was changed meanwhile (' . $current . '), no restore!');
+                return true;
+            }
+        }
+
+        $ret = @RequestAction($vid, ($type === VARIABLETYPE_INTEGER) ? (int) round($value) : $value);
+        if ($ret === false) {
+            $this->LogMessage('Setpoint variable #' . $vid . ' could not be switched by RequestAction!', KL_ERROR);
+            // Lowering failed: nothing to restore; restoring failed: keep the value for the next attempt
+            if ($open) {
+                unset($setpoints[$vid]);
+            } else {
+                $setpoints[$vid] = $value;
+            }
+        }
+        $this->WriteAttributeString('Setpoints', json_encode($setpoints));
+        $this->LogDebug(__FUNCTION__, 'Setpoint #' . $vid . ' => ' . $value . ' (' . $this->Stringify($ret) . ')');
+        return $ret !== false;
+    }
+
+    /**
+     * Returns the configured radiators with their mode and reduction temperature.
+     *
+     * @return list<array{VariableID:int,Mode:int,Temperature:float}> Radiators
+     */
+    private function GetRadiators(): array
+    {
+        $radiators = [];
+        $list = json_decode($this->ReadPropertyString('RadiatorVariables'), true);
+        if (is_array($list)) {
+            foreach ($list as $entry) {
+                $id = (int) ($entry['VariableID'] ?? 0);
+                if ($id >= self::IPS_MIN_ID) {
+                    $radiators[] = [
+                        'VariableID'  => $id,
+                        'Mode'        => (int) ($entry['Mode'] ?? self::RADIATOR_WINDOW),
+                        'Temperature' => (float) ($entry['Temperature'] ?? self::REDUCTION_TEMPERATURE),
+                    ];
+                }
+            }
+        }
+        return $radiators;
     }
 
     /**
@@ -917,13 +1063,13 @@ class ContactSensor extends IPSModuleStrict
         $this->SetTimerInterval('RepeatTrigger', 0);
         $this->SetTimerInterval('SwitchTrigger', 0);
 
-        // Reduction derived from the radiators (if configured)
+        // Reduction derived from the window state variables (if configured), setpoints carry no state
         $reduction = $this->ReadAttributeBoolean('Reduction');
-        $radiators = $this->GetListVariables('RadiatorVariables');
+        $radiators = array_filter($this->GetRadiators(), fn (array $radiator): bool => $radiator['Mode'] === self::RADIATOR_WINDOW);
         if (!empty($radiators)) {
             $reduction = false;
-            foreach ($radiators as $id) {
-                $vid = $this->ResolveRadiatorVariable($id);
+            foreach ($radiators as $radiator) {
+                $vid = $this->ResolveRadiatorVariable($radiator['VariableID']);
                 if (($vid !== 0) && (bool) GetValue($vid)) {
                     $reduction = true;
                 }
@@ -979,6 +1125,20 @@ class ContactSensor extends IPSModuleStrict
         }
         $due = json_decode($this->GetBuffer('TimerDue'), true);
         return (is_array($due) && isset($due[$timer])) ? max(0, (int) $due[$timer] - time()) : 0;
+    }
+
+    /**
+     * Show message via popup
+     *
+     * @param string $caption echo message (english, will be translated)
+     * @param int    ...$args Values for the placeholders of the message
+     *
+     * @return void
+     */
+    private function EchoMessage(string $caption, int ...$args): void
+    {
+        $this->UpdateFormField('EchoMessage', 'caption', sprintf($this->Translate($caption), ...$args));
+        $this->UpdateFormField('EchoPopup', 'visible', true);
     }
 
     /**

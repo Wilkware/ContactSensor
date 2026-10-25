@@ -3,7 +3,7 @@
 [![Home](https://img.shields.io/badge/Home-wilkware.de-0b1830.svg?style=flat-square)](https://wilkware.de/module/kontaktsensor/)
 [![Version](https://img.shields.io/badge/Symcon-PHP--Modul-red.svg?style=flat-square)](https://www.symcon.de/service/dokumentation/entwicklerbereich/sdk-tools/sdk-php/)
 [![Product](https://img.shields.io/badge/Symcon%20Version-8.1-blue.svg?style=flat-square)](https://www.symcon.de/produkt/)
-[![Version](https://img.shields.io/badge/Modul%20Version-4.0.20261004-orange.svg?style=flat-square)](https://github.com/Wilkware/ContactSensor)
+[![Version](https://img.shields.io/badge/Modul%20Version-4.1.20261025-orange.svg?style=flat-square)](https://github.com/Wilkware/ContactSensor)
 [![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-green.svg?style=flat-square)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![Actions](https://img.shields.io/github/actions/workflow/status/wilkware/ContactSensor/ci.yml?branch=main&label=CI&style=flat-square)](https://github.com/Wilkware/ContactSensor/actions)
 
@@ -41,7 +41,7 @@ Wer die Meldungsverwaltung (Thema: [Meldungsanzeige im WebFront](https://www.sym
 ### 2. Voraussetzungen
 
 * Symcon ab Version 8.1
-* Heizkörper mit schaltbarer Fensterstatus-Variable (Bool, Integer oder Float mit Aktion), z.B. `WINDOW_STATE` bei HmIP-WTH2 und HmIP-eTRV(-2)
+* Heizkörper mit schaltbarer Fensterstatus-Variable (Bool, Integer oder Float mit Aktion), z.B. `WINDOW_STATE` bei HmIP-WTH2 und HmIP-eTRV(-2), oder mit schaltbarer Solltemperatur-Variable (Integer oder Float mit Aktion) für Geräte ohne Fensterstatus
 
 ### 3. Installation
 
@@ -76,7 +76,7 @@ _Hinweis:_ Ob Ventilstellung und Temperaturdifferenz (auch wiederholt) geprüft 
 
 Name                            | Beschreibung
 ------------------------------- | -----------------------------------------------------------------
-Fensterstatus-Variablen         | Liste der Fensterstatus-Variablen der Thermostate bzw. Stellantriebe (offen = true/1, geschlossen = false/0), Schalten per RequestAction
+Heizkörper                      | Liste der zu schaltenden Variablen der Thermostate bzw. Stellantriebe mit Modus je Eintrag, Schalten per RequestAction:<br>_Fensterstatus_: offen = true/1, geschlossen = false/0<br>_Solltemperatur_: Absenken auf die _Absenktemperatur_ (im Bearbeiten-Dialog nur in diesem Modus einstellbar), beim Schließen wird der vorherige Sollwert wiederhergestellt (nicht, wenn er zwischenzeitlich manuell oder per Wochenprogramm verändert wurde)
 
 > 🌡️ Klimawerte ...
 
@@ -109,12 +109,14 @@ Gleichzeitiges Ausführen eines Skriptes | Auswahl eines Skriptes, welches nur o
 
 Aktionsbereich:
 
-Name                            | Beschreibung
-------------------------------- | -----------------------------------------------------------------
-Temperatur absenken             | Schaltet die Heizkörper (und das Skript) direkt auf OFFEN, ohne Prüfung der Bedingungen
-Absenkung aufheben              | Hebt eine aktive Absenkung auf
+> 🧪 Test ...
 
-_Hinweis:_ Bestehende Konfigurationen (4 Sensoren, 2 HomeMatic-Instanzen) werden automatisch in die neuen Listen übernommen.
+Aktion                          | Beschreibung
+------------------------------- | -----------------------------------------------------------------
+TEMPERATUR ABSENKEN             | Schaltet die Heizkörper (und das Skript) direkt auf OFFEN, ohne Prüfung der Bedingungen
+ABSENKUNG AUFHEBEN              | Hebt eine aktive Absenkung auf
+
+_Hinweis:_ Das Ergebnis wird jeweils als Popup angezeigt, inkl. Anzahl der Heizkörper, die nicht geschaltet werden konnten (Details im Meldungsfenster).
 
 ### 5. Statusvariablen
 
@@ -188,6 +190,14 @@ _Hinweis:_ Das Script 'Meldungsanzeige im WebFront' (Meldungsverwaltung) wird un
 Das Modul stellt keine direkten Funktionsaufrufe zur Verfügung.
 
 ### 9. Versionshistorie
+
+v4.1.20261025
+
+* _NEU_: Alternativ Absenkung der Solltemperatur auf einen wählbaren Wert für Geräte ohne Fensterstatus-Variable
+* _NEU_: Bearbeiten-Dialog der Heizkörper (Absenktemperatur nur im Modus Solltemperatur einstellbar)
+* _NEU_: Rückmeldung der Testfunktionen als Popup
+* _NEU_: Testbereich vereinheitlicht
+* _FIX_: Status in den Listen zeigte einen veralteten, mitgespeicherten Wert (z.B. „Aktion erforderlich“)
 
 v4.0.20261004
 

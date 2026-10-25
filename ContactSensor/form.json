@@ -87,7 +87,8 @@
                             "name": "Status",
                             "caption": "Status",
                             "width": "200px",
-                            "add": ""
+                            "add": "",
+                            "save": false
                         }
                     ]
                 },
@@ -129,10 +130,51 @@
                 {
                     "type": "List",
                     "name": "RadiatorVariables",
-                    "caption": "Window state variables:",
+                    "caption": "Radiators:",
                     "add": true,
                     "delete": true,
                     "rowCount": 4,
+                    "form": [
+                        {
+                            "type": "SelectVariable",
+                            "name": "VariableID",
+                            "caption": "Variable",
+                            "validVariableTypes": [
+                                0,
+                                1,
+                                2
+                            ],
+                            "requiredAction": 1,
+                            "width": "450px"
+                        },
+                        {
+                            "type": "Select",
+                            "name": "Mode",
+                            "caption": "Mode",
+                            "width": "450px",
+                            "options": [
+                                {
+                                    "caption": "Window state",
+                                    "value": 0
+                                },
+                                {
+                                    "caption": "Setpoint temperature",
+                                    "value": 1
+                                }
+                            ],
+                            "onChange": "IPS_RequestAction($id, 'RadiatorMode', $Mode);"
+                        },
+                        {
+                            "type": "NumberSpinner",
+                            "name": "Temperature",
+                            "caption": "Reduction temperature",
+                            "digits": 1,
+                            "minimum": 4.5,
+                            "maximum": 30,
+                            "suffix": " °C",
+                            "width": "450px"
+                        }
+                    ],
                     "columns": [
                         {
                             "name": "VariableID",
@@ -150,16 +192,49 @@
                             }
                         },
                         {
+                            "name": "Mode",
+                            "caption": "Mode",
+                            "width": "200px",
+                            "add": 0,
+                            "edit": {
+                                "type": "Select",
+                                "options": [
+                                    {
+                                        "caption": "Window state",
+                                        "value": 0
+                                    },
+                                    {
+                                        "caption": "Setpoint temperature",
+                                        "value": 1
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "Temperature",
+                            "caption": "Reduction temperature",
+                            "width": "200px",
+                            "add": 12.0,
+                            "edit": {
+                                "type": "NumberSpinner",
+                                "digits": 1,
+                                "minimum": 4.5,
+                                "maximum": 30,
+                                "suffix": " °C"
+                            }
+                        },
+                        {
                             "name": "Status",
                             "caption": "Status",
                             "width": "200px",
-                            "add": ""
+                            "add": "",
+                            "save": false
                         }
                     ]
                 },
                 {
                     "type": "Label",
-                    "caption": "The window state variable of each thermostat or actuator (e.g. WINDOW_STATE for HmIP) is switched via RequestAction: open = true/1, closed = false/0.",
+                    "caption": "Window state: the window state variable of the thermostat or actuator (e.g. WINDOW_STATE for HmIP) is switched via RequestAction: open = true/1, closed = false/0.\nSetpoint temperature: the setpoint variable is lowered to the reduction temperature via RequestAction, on closing the previous setpoint is restored (unless it was changed meanwhile).",
                     "italic": true
                 }
             ]
@@ -422,8 +497,22 @@
     ],
     "actions": [
         {
+            "name": "EchoPopup",
+            "type": "PopupAlert",
+            "visible": false,
+            "popup": {
+                "items": [
+                    {
+                        "type": "Label",
+                        "name": "EchoMessage",
+                        "caption": ""
+                    }
+                ]
+            }
+        },
+        {
             "type": "ExpansionPanel",
-            "caption": "🧪 Test functions ...",
+            "caption": "🧪 Test ...",
             "items": [
                 {
                     "type": "Label",
