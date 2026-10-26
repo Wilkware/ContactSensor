@@ -27,7 +27,7 @@ Wer die Meldungsverwaltung (Thema: [Meldungsanzeige im WebFront](https://www.sym
 
 ### 1. Funktionsumfang
 
-* Überwachen beliebig vieler Kontaktsensoren (z.B. pro Raum), jeder Wert ungleich 0 gilt als offen (auch gekippt)
+* Überwachen beliebig vieler Kontaktsensoren (z.B. pro Raum), jeder Wert ungleich 0 gilt als offen (auch gekippt), je Sensor invertierbar (z.B. Zigbee2MQTT)
 * Verzögertes Absenken der Heizung entsprechend eingestellter Zeit
 * Schalten beliebig vieler Heizkörper (Thermostate bzw. Stellantriebe) herstellerneutral per `RequestAction`
 * Bedingtes Schalten in Abhängigkeit ...
@@ -35,6 +35,7 @@ Wer die Meldungsverwaltung (Thema: [Meldungsanzeige im WebFront](https://www.sym
   * der Differenz zwischen Außen- und Innentemperatur
   * Wiederholtes Testen der Bedingungen nach einstellbarer Zeit
 * Automatisches Aufheben der Absenkung unabhängig vom Zustand der Sensoren
+* Nachrichten an Meldungsverwaltung und Visualisierung beim Öffnen, Schließen und bei zu lange geöffnetem Fenster (optional nur unterhalb einer Außentemperatur)
 * Statusvariablen zum Steuern des bedingten Schaltens (z.B. über die Kachel-Visualisierung)
 * Testfunktionen im Aktionsbereich der Konfiguration
 
@@ -61,7 +62,7 @@ Einstellungsbereich:
 
 Name                            | Beschreibung
 ------------------------------- | -----------------------------------------------------------------
-Sensoren                        | Liste der Statusvariablen der Kontaktsensoren (0/false = geschlossen, jeder andere Wert = offen) mit Typ je Sensor (Fenster, Dachfenster, Tür, Terrassentür oder Sonstiges); der Typ bestimmt das Symbol in der Kachel
+Sensoren                        | Liste der Statusvariablen der Kontaktsensoren (0/false = geschlossen, jeder andere Wert = offen; mit „Invertiert“ gilt 0/false als offen, z.B. `contact` bei Zigbee2MQTT) mit Typ je Sensor (Fenster, Dachfenster, Tür, Terrassentür oder Sonstiges); der Typ bestimmt das Symbol in der Kachel
 
 > 🔀 Bedingtes Schalten ...
 
@@ -90,14 +91,17 @@ Außentemperatur                 | Aktuelle Außentemperatur
 Name                                 | Beschreibung
 ------------------------------------ | -----------------------------------------------------------------
 Meldung an Anzeige senden            | Auswahl ob Eintrag in die Meldungsverwaltung erfolgen soll oder nicht (Ja/Nein)
-Auslöser der Nachricht               | Auswahl bei welcher Aktion eine Nachricht erfolgen soll
+Auslöser der Nachricht               | Auswahl bei welcher Aktion eine Nachricht erfolgen soll (Öffnen, Schließen, Zu lange offen oder Kombinationen)
 Lebensdauer der Nachricht (Öffnen)   | Wie lange soll die öffnende Meldung angezeigt werden?
 Lebensdauer der Nachricht (Schließen)| Wie lange soll die schließende Meldung angezeigt werden?
 Nachricht an Visualisierung senden   | Auswahl ob Push-Nachricht gesendet werden soll oder nicht (Ja/Nein)
-Auslöser der Nachricht               | Auswahl bei welcher Aktion eine Nachricht erfolgen soll
+Auslöser der Nachricht               | Auswahl bei welcher Aktion eine Nachricht erfolgen soll (Öffnen, Schließen, Zu lange offen oder Kombinationen)
 Raumname                             | Text zur eindeutigen Zuordnung des Raums
 Format der Textmitteilung (Öffnen)   | Frei wählbares Format der öffnenden Nachricht/Meldung
 Format der Textmitteilung (Schließen)| Frei wählbares Format der schließenden Nachricht/Meldung
+Offen länger als                     | Dauer, nach der beim Auslöser „Zu lange offen“ eine Nachricht erfolgt, wenn noch mindestens ein Sensor offen ist (einmal je Öffnung, unabhängig von der Automatik)
+Nur wenn Außentemperatur unter       | Nachricht „Zu lange offen“ nur, wenn die Außentemperatur (Klimawerte) unter dem eingestellten Wert liegt; sonst wird minütlich erneut geprüft, solange der Sensor offen ist
+Format der Textmitteilung (zu lange offen) | Frei wählbares Format der Nachricht/Meldung „Zu lange offen“ (die Meldung wird beim Schließen aller Sensoren entfernt)
 Visualisierungs-Instanz              | ID der Visualisierung, an welches die Push-Nachrichten gesendet werden soll (WebFront oder TileVisu Instanz)
 Meldungsskript                       | Skript ID des Meldungsverwaltungsskripts
 
@@ -115,6 +119,7 @@ Aktion                          | Beschreibung
 ------------------------------- | -----------------------------------------------------------------
 TEMPERATUR ABSENKEN             | Schaltet die Heizkörper (und das Skript) direkt auf OFFEN, ohne Prüfung der Bedingungen
 ABSENKUNG AUFHEBEN              | Hebt eine aktive Absenkung auf
+ZU LANGE OFFEN                  | Sendet die Nachricht „Zu lange offen“ an Visualisierungs-Instanz und Meldungsskript, unabhängig von Nachrichteneinstellungen, Auslösern und Bedingungen (die Meldung im Dashboard wird beim nächsten Schließen aller Sensoren entfernt)
 
 _Hinweis:_ Das Ergebnis wird jeweils als Popup angezeigt, inkl. Anzahl der Heizkörper, die nicht geschaltet werden konnten (Details im Meldungsfenster).
 
@@ -197,6 +202,8 @@ v4.1.20261025
 * _NEU_: Bearbeiten-Dialog der Heizkörper (Absenktemperatur nur im Modus Solltemperatur einstellbar)
 * _NEU_: Rückmeldung der Testfunktionen als Popup
 * _NEU_: Testbereich vereinheitlicht
+* _NEU_: Nachrichtenauslöser „Zu lange offen“, optional nur unterhalb einer Außentemperatur
+* _NEU_: Kontaktsensoren invertierbar (z.B. `contact` bei Zigbee2MQTT: true = geschlossen)
 * _FIX_: Status in den Listen zeigte einen veralteten, mitgespeicherten Wert (z.B. „Aktion erforderlich“)
 
 v4.0.20261004

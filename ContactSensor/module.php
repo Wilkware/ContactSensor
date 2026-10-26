@@ -56,6 +56,18 @@ class ContactSensor extends IPSModuleStrict
     /** @var float Max. deviation (K) at which the setpoint still counts as lowered */
     private const SETPOINT_TOLERANCE = 0.5;
 
+    /** @var int Message trigger: opening (bit) */
+    private const MESSAGE_OPENING = 1;
+
+    /** @var int Message trigger: closing (bit) */
+    private const MESSAGE_CLOSING = 2;
+
+    /** @var int Message trigger: open too long (bit) */
+    private const MESSAGE_ALERT = 4;
+
+    /** @var int Seconds until the outdoor temperature is checked again for the open too long message */
+    private const ALERT_RECHECK = 60;
+
     /** @var string Status column: everything fine */
     private const STATE_OK = 'OK';
 
@@ -162,6 +174,10 @@ class ContactSensor extends IPSModuleStrict
         $this->RegisterPropertyString('RoomName', $this->Translate('Unknown'));
         $this->RegisterPropertyString('TextOpening', $this->Translate('%R: Temperature is lowered!'));
         $this->RegisterPropertyString('TextClosing', $this->Translate('%R: Temperature reduction cancelled!'));
+        $this->RegisterPropertyString('TextAlert', $this->Translate('%R: Window has been open too long!'));
+        $this->RegisterPropertyInteger('AlertDuration', 15);
+        $this->RegisterPropertyBoolean('AlertTemperatureCheck', false);
+        $this->RegisterPropertyFloat('AlertTemperature', 10.0);
         $this->RegisterPropertyString('TitleMessage', $this->Translate('Contact Sensor'));
         $this->RegisterPropertyInteger('InstanceWebfront', 0);
         $this->RegisterPropertyInteger('ScriptMessage', 0);
@@ -185,10 +201,12 @@ class ContactSensor extends IPSModuleStrict
         $this->RegisterTimer('DelayTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Delay', 0);");
         $this->RegisterTimer('RepeatTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Repeat', 0);");
         $this->RegisterTimer('SwitchTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Switch', 0);");
+        $this->RegisterTimer('AlertTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Alert', 0);");
 
         // Internal state
         $this->RegisterAttributeBoolean('Reduction', false);
         $this->RegisterAttributeInteger('Message', 0);
+        $this->RegisterAttributeInteger('AlertMessage', 0);
         $this->RegisterAttributeString('Setpoints', '{}');
 
         // Set visualization type to 1, as we want to offer HTML
@@ -318,6 +336,13 @@ class ContactSensor extends IPSModuleStrict
                 . var_export($element['form'], true) . ');';
         });
 
+        // Outdoor temperature limit only with active check
+        $check = $this->ReadPropertyBoolean('AlertTemperatureCheck');
+        $this->ModifyFormElement($form['elements'], 'AlertTemperature', function (array &$element) use ($check): void
+        {
+            $element['enabled'] = $check;
+        });
+
         // Extract version
         $ins = IPS_GetInstance($this->InstanceID);
         $mod = IPS_GetModule($ins['ModuleInfo']['ModuleID']);
@@ -420,6 +445,7 @@ class ContactSensor extends IPSModuleStrict
 
         // Set internal state
         $this->InternalState();
+        $this->UpdateAlert();
         $this->UpdateTile();
 
         if ($missing) {
@@ -459,9 +485,8 @@ class ContactSensor extends IPSModuleStrict
                     $this->LogDebug(__FUNCTION__, 'Sensor #' . $sender . ' unknown!');
                     break;
                 }
-                // Every value != 0 is open (e.g. rotary handle: 1 = tilted, 2 = open)
-                $new = (bool) $data[0];
-                $old = (bool) $data[2];
+                $new = $this->IsSensorOpen($sender, $data[0]);
+                $old = $this->IsSensorOpen($sender, $data[2]);
                 if (!$data[1] || ($new === $old)) {
                     $this->LogDebug(__FUNCTION__, 'Sensor #' . $sender . ': no state change (' . $this->Stringify($data[0]) . ')');
                     break;
@@ -472,6 +497,7 @@ class ContactSensor extends IPSModuleStrict
                 } else {
                     $this->Close($sender);
                 }
+                $this->UpdateAlert();
                 $this->UpdateTile();
                 break;
         }
@@ -496,6 +522,9 @@ class ContactSensor extends IPSModuleStrict
             case 'Switch':
                 $this->Restore();
                 break;
+            case 'Alert':
+                $this->Alert();
+                return;
             case 'TestReduction':
                 if (empty($this->GetRadiators()) && ($this->ReadPropertyInteger('ExecScript') < self::IPS_MIN_ID)) {
                     $this->EchoMessage('No radiators or script configured!');
@@ -514,8 +543,20 @@ class ContactSensor extends IPSModuleStrict
                 $failed = $this->Restore();
                 $this->EchoMessage(($failed === 0) ? 'Lowering cancelled!' : 'Lowering cancelled, but %d radiator(s) could not be switched (see message log)!', $failed);
                 break;
+            case 'TestAlert':
+                $webfront = $this->ReadPropertyInteger('InstanceWebfront');
+                if (!$this->IsWebFrontVisuInstance($webfront) && !$this->IsTileVisuInstance($webfront) && !IPS_ScriptExists($this->ReadPropertyInteger('ScriptMessage'))) {
+                    $this->EchoMessage('No visualization instance or message script configured!');
+                    return;
+                }
+                $this->SendMessage(self::MESSAGE_ALERT, true);
+                $this->EchoMessage("Message 'Open too long' sent!");
+                return;
             case 'RadiatorMode':
                 $this->UpdateFormField('Temperature', 'enabled', (int) $value === self::RADIATOR_SETPOINT);
+                return;
+            case 'AlertTemperatureCheck':
+                $this->UpdateFormField('AlertTemperature', 'enabled', (bool) $value);
                 return;
             case 'Automatic':
                 $this->SetValueBoolean($ident, (bool) $value);
@@ -655,8 +696,40 @@ class ContactSensor extends IPSModuleStrict
     private function IsAnySensorOpen(): bool
     {
         foreach ($this->GetListVariables('SensorVariables') as $vid) {
-            if (IPS_VariableExists($vid) && (bool) GetValue($vid)) {
+            if (IPS_VariableExists($vid) && $this->IsSensorOpen($vid, GetValue($vid))) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Evaluates a sensor value as open or closed, taking the inversion of the sensor into account.
+     * Every value != 0 is open (e.g. rotary handle: 1 = tilted, 2 = open), inverted 0 is open (e.g. Zigbee2MQTT contact).
+     *
+     * @param int   $vid   Sensor variable ID
+     * @param mixed $value Sensor value
+     *
+     * @return bool True if the value means open
+     */
+    private function IsSensorOpen(int $vid, mixed $value): bool
+    {
+        return (bool) $value !== $this->IsSensorInverted($vid);
+    }
+
+    /**
+     * Checks whether a sensor is configured as inverted.
+     *
+     * @param int $vid Sensor variable ID
+     *
+     * @return bool True if inverted
+     */
+    private function IsSensorInverted(int $vid): bool
+    {
+        $list = json_decode($this->ReadPropertyString('SensorVariables'), true);
+        foreach (is_array($list) ? $list : [] as $entry) {
+            if ((int) ($entry['VariableID'] ?? 0) === $vid) {
+                return (bool) ($entry['Invert'] ?? false);
             }
         }
         return false;
@@ -740,7 +813,7 @@ class ContactSensor extends IPSModuleStrict
             $this->StartTimer('SwitchTrigger', $time * 60 * 1000);
         }
 
-        $this->SendMessage(true);
+        $this->SendMessage(self::MESSAGE_OPENING);
         return $failed;
     }
 
@@ -769,7 +842,7 @@ class ContactSensor extends IPSModuleStrict
         $failed = $this->SwitchRadiators(false);
         $this->ExecuteScript(false);
         $this->SetReduction(false);
-        $this->SendMessage(false);
+        $this->SendMessage(self::MESSAGE_CLOSING);
         return $failed;
     }
 
@@ -959,16 +1032,100 @@ class ContactSensor extends IPSModuleStrict
     }
 
     /**
-     * SendMessage - if setuped. its send a message to indicate the state changes
-     *
-     * @param bool $state contact state (true is open | false is close).
+     * Starts or stops the open too long timer depending on the sensor states.
+     * On closing of all sensors an open too long message is removed from the dashboard.
      *
      * @return void
      */
-    private function SendMessage(bool $state): void
+    private function UpdateAlert(): void
     {
-        $isDashboard = $this->ReadPropertyInteger('DashboardMessage');
-        $isNotify = $this->ReadPropertyInteger('NotificationMessage');
+        if (!$this->IsAnySensorOpen()) {
+            $this->SetTimerInterval('AlertTrigger', 0);
+            $this->SetBuffer('Alerted', json_encode(false));
+            $this->RemoveDashboardMessage('AlertMessage');
+            return;
+        }
+        // Only one message per opening, even if further sensors are opened
+        if (!$this->IsAlertEnabled() || ($this->GetTimerInterval('AlertTrigger') > 0) || (json_decode($this->GetBuffer('Alerted')) === true)) {
+            return;
+        }
+        $this->LogDebug(__FUNCTION__, 'Start open too long timer!');
+        $this->SetTimerInterval('AlertTrigger', $this->ReadPropertyInteger('AlertDuration') * 60 * 1000);
+    }
+
+    /**
+     * Checks whether a dashboard or notification message is configured with the trigger open too long.
+     *
+     * @return bool True if configured
+     */
+    private function IsAlertEnabled(): bool
+    {
+        return ($this->ReadPropertyInteger('DashboardMessage') && ($this->ReadPropertyInteger('DashboardTrigger') & self::MESSAGE_ALERT))
+            || ($this->ReadPropertyInteger('NotificationMessage') && ($this->ReadPropertyInteger('NotificationTrigger') & self::MESSAGE_ALERT));
+    }
+
+    /**
+     * Alert - sends the open too long message, optionally only below the outdoor temperature limit.
+     *
+     * @return void
+     */
+    private function Alert(): void
+    {
+        $this->SetTimerInterval('AlertTrigger', 0);
+        if (!$this->IsAnySensorOpen()) {
+            return;
+        }
+        if ($this->ReadPropertyBoolean('AlertTemperatureCheck')) {
+            $vid = $this->ReadPropertyInteger('TempOutdoor');
+            if (IPS_VariableExists($vid)) {
+                $temperature = (float) GetValue($vid);
+                $limit = $this->ReadPropertyFloat('AlertTemperature');
+                if ($temperature >= $limit) {
+                    // Window stays open, the outdoor temperature may still fall below the limit
+                    $this->LogDebug(__FUNCTION__, 'Outdoor temperature ' . $temperature . ' not below ' . $limit . ', check again later!');
+                    $this->SetTimerInterval('AlertTrigger', self::ALERT_RECHECK * 1000);
+                    return;
+                }
+            } else {
+                $this->LogDebug(__FUNCTION__, 'Outdoor temperature check is active but no temperature variable available!');
+            }
+        }
+        $this->SetBuffer('Alerted', json_encode(true));
+        $this->SendMessage(self::MESSAGE_ALERT);
+    }
+
+    /**
+     * Removes a message from the dashboard (message script).
+     *
+     * @param string $attribute Attribute holding the message number
+     *
+     * @return void
+     */
+    private function RemoveDashboardMessage(string $attribute): void
+    {
+        $msg = $this->ReadAttributeInteger($attribute);
+        if ($msg <= 0) {
+            return;
+        }
+        $msgscript = $this->ReadPropertyInteger('ScriptMessage');
+        if (IPS_ScriptExists($msgscript)) {
+            IPS_RunScriptWaitEx($msgscript, ['action' => 'remove', 'number' => $msg]);
+        }
+        $this->WriteAttributeInteger($attribute, 0);
+    }
+
+    /**
+     * SendMessage - if setuped. its send a message to indicate the state changes
+     *
+     * @param int  $event Message trigger (MESSAGE_OPENING, MESSAGE_CLOSING or MESSAGE_ALERT)
+     * @param bool $test  Send to all configured targets, independent of the message settings and triggers
+     *
+     * @return void
+     */
+    private function SendMessage(int $event, bool $test = false): void
+    {
+        $isDashboard = $test || $this->ReadPropertyInteger('DashboardMessage');
+        $isNotify = $test || $this->ReadPropertyInteger('NotificationMessage');
         if (!$isDashboard && !$isNotify) {
             return;
         }
@@ -982,30 +1139,23 @@ class ContactSensor extends IPSModuleStrict
         $msgtitle = $this->ReadPropertyString('TitleMessage');
         $msgscript = $this->ReadPropertyInteger('ScriptMessage');
 
+        // set the right parameter (an open too long message stays until closing)
+        [$type, $img, $text, $typ, $time, $attribute] = match ($event) {
+            self::MESSAGE_OPENING => ['OPEN', 'Window-0', 'TextOpening', 2, $this->ReadPropertyInteger('DashboardOpening') * 60, 'Message'],
+            self::MESSAGE_CLOSING => ['CLOSE', 'Window-100', 'TextClosing', 0, $this->ReadPropertyInteger('DashboardClosing') * 60, 'Message'],
+            default               => ['OPEN TOO LONG', 'Window-0', 'TextAlert', 2, 0, 'AlertMessage'],
+        };
+
         // specifier
         $value = [
             'ROOM' => $this->ReadPropertyString('RoomName'),
-            'TYPE' => ($state ? $this->Translate('OPEN') : $this->Translate('CLOSE')),
+            'TYPE' => $this->Translate($type),
             'DATE' => date('d.m.Y', time()),
             'TIME' => date('H:i:s', time()),
         ];
-
-        // set the right parameter
-        if ($state) {
-            $img = 'Window-0';
-            $txt = $this->FormatMessage($value, $this->ReadPropertyString('TextOpening'));
-            $typ = 2;
-            $sdb = (bool) ($triggerDashboard & 1);
-            $swf = (bool) ($triggerNotify & 1);
-            $time = $this->ReadPropertyInteger('DashboardOpening') * 60;
-        } else {
-            $img = 'Window-100';
-            $txt = $this->FormatMessage($value, $this->ReadPropertyString('TextClosing'));
-            $typ = 0;
-            $sdb = (bool) ($triggerDashboard & 2);
-            $swf = (bool) ($triggerNotify & 2);
-            $time = $this->ReadPropertyInteger('DashboardClosing') * 60;
-        }
+        $txt = $this->FormatMessage($value, $this->ReadPropertyString($text));
+        $sdb = $test || ($triggerDashboard & $event);
+        $swf = $test || ($triggerNotify & $event);
         $this->LogDebug(__FUNCTION__, 'Image: ' . $img . ', Text: ' . $txt . ', SDB: ' . $this->Stringify($sdb) . ', SWF: ' . $this->Stringify($swf) . ', Time: ' . $time);
 
         // send notify?
@@ -1021,12 +1171,12 @@ class ContactSensor extends IPSModuleStrict
         // send message?
         if ($isDashboard && IPS_ScriptExists($msgscript)) {
             // remove old message on closing (independent of the trigger)
-            if (!$state) {
-                $msg = $this->ReadAttributeInteger('Message');
-                if ($msg > 0) {
-                    IPS_RunScriptWaitEx($msgscript, ['action' => 'remove', 'number' => $msg]);
-                    $this->WriteAttributeInteger('Message', 0);
-                }
+            if ($event === self::MESSAGE_CLOSING) {
+                $this->RemoveDashboardMessage('Message');
+            }
+            // only one open too long message (e.g. repeated test)
+            if ($event === self::MESSAGE_ALERT) {
+                $this->RemoveDashboardMessage('AlertMessage');
             }
             if ($sdb) {
                 $params = ['action' => 'add', 'text' => $txt, 'removable' => true, 'type' => $typ, 'image' => $img];
@@ -1034,7 +1184,7 @@ class ContactSensor extends IPSModuleStrict
                     $params['expires'] = time() + $time;
                 }
                 $msg = (int) IPS_RunScriptWaitEx($msgscript, $params);
-                $this->WriteAttributeInteger('Message', $msg);
+                $this->WriteAttributeInteger($attribute, $msg);
             }
         }
     }
@@ -1059,6 +1209,7 @@ class ContactSensor extends IPSModuleStrict
      */
     private function InternalState(): void
     {
+        $this->SetTimerInterval('AlertTrigger', 0);
         $this->SetTimerInterval('DelayTrigger', 0);
         $this->SetTimerInterval('RepeatTrigger', 0);
         $this->SetTimerInterval('SwitchTrigger', 0);

@@ -84,6 +84,15 @@
                             }
                         },
                         {
+                            "name": "Invert",
+                            "caption": "Inverted",
+                            "width": "100px",
+                            "add": false,
+                            "edit": {
+                                "type": "CheckBox"
+                            }
+                        },
+                        {
                             "name": "Status",
                             "caption": "Status",
                             "width": "200px",
@@ -94,7 +103,7 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "Every value not equal to 0 (false) is evaluated as open, e.g. a tilted window handle.",
+                    "caption": "Every value not equal to 0 (false) is evaluated as open, e.g. a tilted window handle. Inverted: 0 (false) is evaluated as open, e.g. 'contact' of Zigbee2MQTT (true = closed).",
                     "italic": true
                 }
             ]
@@ -302,6 +311,22 @@
                                 {
                                     "value": 3,
                                     "caption": "Opening & Closing"
+                                },
+                                {
+                                    "value": 4,
+                                    "caption": "Open too long"
+                                },
+                                {
+                                    "value": 5,
+                                    "caption": "Opening & Open too long"
+                                },
+                                {
+                                    "value": 6,
+                                    "caption": "Closing & Open too long"
+                                },
+                                {
+                                    "value": 7,
+                                    "caption": "All"
                                 }
                             ]
                         },
@@ -407,6 +432,22 @@
                                 {
                                     "value": 3,
                                     "caption": "Opening & Closing"
+                                },
+                                {
+                                    "value": 4,
+                                    "caption": "Open too long"
+                                },
+                                {
+                                    "value": 5,
+                                    "caption": "Opening & Open too long"
+                                },
+                                {
+                                    "value": 6,
+                                    "caption": "Closing & Open too long"
+                                },
+                                {
+                                    "value": 7,
+                                    "caption": "All"
                                 }
                             ]
                         }
@@ -441,6 +482,85 @@
                             "name": "TextClosing",
                             "caption": "Text message format (closing):",
                             "width": "450px"
+                        }
+                    ]
+                },
+                {
+                    "type": "Label",
+                    "caption": "... for the trigger 'Open too long' (outdoor temperature variable from the climate settings):"
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "Select",
+                            "name": "AlertDuration",
+                            "caption": "Open longer than:",
+                            "width": "450px",
+                            "options": [
+                                {
+                                    "value": 5,
+                                    "caption": "5 min"
+                                },
+                                {
+                                    "value": 10,
+                                    "caption": "10 min"
+                                },
+                                {
+                                    "value": 15,
+                                    "caption": "15 min"
+                                },
+                                {
+                                    "value": 20,
+                                    "caption": "20 min"
+                                },
+                                {
+                                    "value": 30,
+                                    "caption": "30 min"
+                                },
+                                {
+                                    "value": 45,
+                                    "caption": "45 min"
+                                },
+                                {
+                                    "value": 60,
+                                    "caption": "60 min"
+                                },
+                                {
+                                    "value": 90,
+                                    "caption": "90 min"
+                                },
+                                {
+                                    "value": 120,
+                                    "caption": "2 h"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "ValidationTextBox",
+                            "name": "TextAlert",
+                            "caption": "Text message format (open too long):",
+                            "width": "450px"
+                        }
+                    ]
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "CheckBox",
+                            "name": "AlertTemperatureCheck",
+                            "caption": "Only if outdoor temperature below",
+                            "width": "450px",
+                            "onChange": "IPS_RequestAction($id, 'AlertTemperatureCheck', $AlertTemperatureCheck);"
+                        },
+                        {
+                            "type": "NumberSpinner",
+                            "name": "AlertTemperature",
+                            "caption": "Outdoor temperature:",
+                            "digits": 1,
+                            "suffix": " °C",
+                            "width": "200px"
                         }
                     ]
                 },
@@ -524,14 +644,26 @@
                         {
                             "type": "Button",
                             "caption": "Lower temperature",
+                            "width": "200px",
                             "onClick": "IPS_RequestAction($id, 'TestReduction', '');"
                         },
                         {
                             "type": "Button",
                             "caption": "Cancel lowering",
+                            "width": "200px",
                             "onClick": "IPS_RequestAction($id, 'TestRestore', '');"
                         }
                     ]
+                },
+                {
+                    "type": "Label",
+                    "caption": "Sends the message 'Open too long' to the visualization instance and the message script, independent of the message settings, triggers and conditions."
+                },
+                {
+                    "type": "Button",
+                    "caption": "Open too long",
+                    "width": "200px",
+                    "onClick": "IPS_RequestAction($id, 'TestAlert', '');"
                 }
             ]
         },
