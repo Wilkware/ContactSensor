@@ -611,6 +611,11 @@
                     "name": "ExecScript",
                     "caption": "Simultaneous execution of a script:",
                     "width": "450px"
+                },
+                {
+                    "type": "CheckBox",
+                    "name": "ContactState",
+                    "caption": "Create status variable for the contact state (open/closed)"
                 }
             ]
         }

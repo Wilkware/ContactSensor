@@ -487,6 +487,7 @@
             off:     { color: '--color-off',     open: false }
         };
         let texts = {};
+        let available = { valve: true, temperature: true, repeat: true };
         let type = 0;
         let automatic = false;
         let valveCheck = false;
@@ -517,6 +518,8 @@
 
             const set = (id, active, label, title) => {
                 const button = document.getElementById('button-' + id);
+                // Conditions without configured variables are hidden (switch back is always available)
+                button.style.display = (available[id] === false) ? 'none' : '';
                 button.classList.toggle('active', active);
                 button.title = title || '';
                 document.getElementById('label-' + id).textContent = label;
@@ -640,6 +643,7 @@
                 const value = data[parameter];
                 switch (parameter) {
                     case 'texts': texts = value; break;
+                    case 'available': available = value; break;
                     case 'type': type = parseInt(value); break;
                     case 'phase': phase = value; break;
                     case 'state': state = value; break;

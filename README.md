@@ -110,6 +110,7 @@ Meldungsskript                       | Skript ID des Meldungsverwaltungsskripts
 Name                            | Beschreibung
 ------------------------------- | -----------------------------------------------------------------
 Gleichzeitiges Ausführen eines Skriptes | Auswahl eines Skriptes, welches nur oder zusätzlich ausgeführt werden soll (IPS_RunScriptEx). Status 1(open) bzw. 0(close) wird im Array als 'WINDOW_STATE' übergeben. Die ID des ausführenden Moduls wird in 'MODUL' mitgegeben.
+Statusvariable für den Kontaktzustand anlegen | Legt die Statusvariable „Kontaktzustand“ an (offen, sobald mindestens ein Sensor offen ist), z.B. zur Zusammenfassung mehrerer Fenster eines Raumes; beim Abwählen wird sie wieder gelöscht
 
 Aktionsbereich:
 
@@ -129,6 +130,7 @@ Die Statusvariablen werden automatisch angelegt. Das Löschen einzelner kann zu 
 
 Name                           | Typ     | Beschreibung
 ------------------------------ | ------- | ------------------------------------------------------------
+Kontaktzustand                 | Boolean | Optional (Erweiterte Einstellungen): offen, sobald mindestens ein Sensor offen ist (nur lesend)
 Automatik                      | Boolean | Schaltet die automatische Absenkung ein/aus
 Ventilstellung prüfen          | Boolean | Absenkung nur bei laufender Heizung (Ventilstellung > 0%)
 Temperaturdifferenz prüfen     | Boolean | Absenkung nur bei Überschreiten der Temperaturdifferenz
@@ -145,6 +147,7 @@ Die Darstellungen werden direkt an den Statusvariablen hinterlegt, es werden kei
 
 Variable                       | Darstellung   | Werte
 ------------------------------ | ------------- | ------------------------------------------------------------
+Kontaktzustand                 | Wertanzeige   | Geschlossen (false), Offen (true); Symbol je nach Typ der Sensoren wie in der Kachel
 Automatik                      | Schalter      | An / Aus
 Ventilstellung prüfen          | Schalter      | An / Aus
 Temperaturdifferenz prüfen     | Schalter      | An / Aus
@@ -161,6 +164,7 @@ Das Modul bringt eine eigene Kachel für die Kachel-Visualisierung mit:
 * Countdown für Verzögerung, nächste Prüfung bzw. automatische Aufhebung
 * Schalter für die Automatik (oben rechts)
 * Leiste mit den Einstellungen des bedingten Schaltens (Ventil, Temperatur, Wiederholen, Aufheben); Ventil wird per Tippen umgeschaltet, die übrigen öffnen einen Slider
+* Ventil wird nur angezeigt, wenn eine Ventilstellungs-Variable hinterlegt ist, Temperatur nur bei hinterlegter Innen- und Außentemperatur, Wiederholen nur, wenn mindestens eine der beiden Bedingungen verfügbar ist
 
 Geschlossen:
 
@@ -196,14 +200,19 @@ Das Modul stellt keine direkten Funktionsaufrufe zur Verfügung.
 
 ### 9. Versionshistorie
 
+v4.2.20261027
+
+* _NEU_: Nachrichtenauslöser „Zu lange offen“, optional nur unterhalb einer Außentemperatur
+* _NEU_: Kontaktsensoren invertierbar (z.B. `contact` bei Zigbee2MQTT: true = geschlossen)
+* _NEU_: Optionale Statusvariable „Kontaktzustand“ (offen/geschlossen) unter „Erweiterte Einstellungen“
+* _NEU_: Kachel zeigt nur die Bedingungen, deren Variablen hinterlegt sind
+
 v4.1.20261025
 
 * _NEU_: Alternativ Absenkung der Solltemperatur auf einen wählbaren Wert für Geräte ohne Fensterstatus-Variable
 * _NEU_: Bearbeiten-Dialog der Heizkörper (Absenktemperatur nur im Modus Solltemperatur einstellbar)
 * _NEU_: Rückmeldung der Testfunktionen als Popup
 * _NEU_: Testbereich vereinheitlicht
-* _NEU_: Nachrichtenauslöser „Zu lange offen“, optional nur unterhalb einer Außentemperatur
-* _NEU_: Kontaktsensoren invertierbar (z.B. `contact` bei Zigbee2MQTT: true = geschlossen)
 * _FIX_: Status in den Listen zeigte einen veralteten, mitgespeicherten Wert (z.B. „Aktion erforderlich“)
 
 v4.0.20261004

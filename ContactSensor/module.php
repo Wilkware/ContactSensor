@@ -134,6 +134,22 @@ class ContactSensor extends IPSModuleStrict
         'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
     ];
 
+    /** @var array<string,mixed> Contact state presentation (Value), icons are set per sensor type */
+    private const TCS_PRESENTATION_STATE = [
+        'ICON'         => '',
+        'OPTIONS'      => '[{"Caption":"Closed","ColorActive":false,"ColorValue":-1,"ContentColorActive":false,"ContentColorValue":-1,"IconActive":true,"IconValue":"","Value":false},{"Caption":"Open","ColorActive":true,"ColorValue":15105570,"ContentColorActive":false,"ContentColorValue":-1,"IconActive":true,"IconValue":"","Value":true}]',
+        'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
+    ];
+
+    /** @var array<int,array{0:string,1:string}> Icons (closed, open) per sensor type, same as in the tile */
+    private const SENSOR_ICONS = [
+        0 => ['window-frame', 'window-frame-open'],
+        1 => ['door-closed', 'door-open'],
+        2 => ['terrace-door-closed', 'terrace-door-open'],
+        3 => ['window-roof-closed', 'window-roof-open'],
+        4 => ['sensor', 'sensor-on'],
+    ];
+
     // -------------------------------------------------------------------------
     // Methods
     // -------------------------------------------------------------------------
@@ -159,6 +175,9 @@ class ContactSensor extends IPSModuleStrict
         // Heating system
         $this->RegisterPropertyString('RadiatorVariables', '[]');
         $this->RegisterPropertyInteger('ExecScript', 0);
+
+        // Advanced settings
+        $this->RegisterPropertyBoolean('ContactState', false);
 
         // Climate
         $this->RegisterPropertyInteger('TempIndoor', 0);
@@ -446,6 +465,7 @@ class ContactSensor extends IPSModuleStrict
         // Set internal state
         $this->InternalState();
         $this->UpdateAlert();
+        $this->UpdateState();
         $this->UpdateTile();
 
         if ($missing) {
@@ -498,6 +518,7 @@ class ContactSensor extends IPSModuleStrict
                     $this->Close($sender);
                 }
                 $this->UpdateAlert();
+                $this->UpdateState();
                 $this->UpdateTile();
                 break;
         }
@@ -640,6 +661,26 @@ class ContactSensor extends IPSModuleStrict
                 $this->EnableAction($ident);
             }
         }
+
+        // Optional contact state (open/closed), the value is set as soon as the sensors are available
+        [$closed, $open] = self::SENSOR_ICONS[$this->GetSensorType()] ?? self::SENSOR_ICONS[self::SENSOR_WINDOW];
+        $state = $this->TranslatePresentation(self::TCS_PRESENTATION_STATE, 'OPTIONS', 'Caption');
+        $options = json_decode($state['OPTIONS'], true);
+        $options[0]['IconValue'] = $closed;
+        $options[1]['IconValue'] = $open;
+        $state['ICON'] = $closed;
+        $state['OPTIONS'] = json_encode($options, JSON_UNESCAPED_UNICODE);
+        $this->MaintainVariable('State', $this->Translate('Contact state'), VARIABLETYPE_BOOLEAN, $state, 0, $this->ReadPropertyBoolean('ContactState'));
+    }
+
+    /**
+     * Updates the optional contact state variable (true = at least one sensor open).
+     *
+     * @return void
+     */
+    private function UpdateState(): void
+    {
+        $this->SetValueBoolean('State', $this->IsAnySensorOpen());
     }
 
     /**
@@ -1336,6 +1377,10 @@ class ContactSensor extends IPSModuleStrict
             $state = 'Closed';
         }
 
+        // Only offer the conditions whose variables are configured, repeating needs at least one condition
+        $valve = IPS_VariableExists($this->ReadPropertyInteger('Level'));
+        $temperature = IPS_VariableExists($this->ReadPropertyInteger('TempIndoor')) && IPS_VariableExists($this->ReadPropertyInteger('TempOutdoor'));
+
         // Options first, so that the selected values can be set afterwards
         return json_encode([
             'texts' => [
@@ -1357,6 +1402,7 @@ class ContactSensor extends IPSModuleStrict
             'state'                 => $this->Translate($state),
             'remaining'             => $remaining,
             'preset'                => ($phase === 'reduced') ? 0 : $this->ReadPropertyInteger('Delay'),
+            'available'             => ['valve' => $valve, 'temperature' => $temperature, 'repeat' => $valve || $temperature],
             'Automatic'             => $automatic,
             'ValveCheck'            => (bool) $this->GetValue('ValveCheck'),
             'TemperatureCheck'      => (bool) $this->GetValue('TemperatureCheck'),
