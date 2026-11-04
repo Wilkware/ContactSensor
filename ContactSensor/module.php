@@ -68,6 +68,9 @@ class ContactSensor extends IPSModuleStrict
     /** @var int Seconds until the outdoor temperature is checked again for the open too long message */
     private const ALERT_RECHECK = 60;
 
+    /** @var string Default sound of push notifications */
+    private const NOTIFICATION_SOUND = 'buzzer';
+
     /** @var string Status column: everything fine */
     private const STATE_OK = 'OK';
 
@@ -199,7 +202,9 @@ class ContactSensor extends IPSModuleStrict
         $this->RegisterPropertyFloat('AlertTemperature', 10.0);
         $this->RegisterPropertyString('TitleMessage', $this->Translate('Contact Sensor'));
         $this->RegisterPropertyInteger('InstanceWebfront', 0);
+        $this->RegisterPropertyString('NotificationSound', self::NOTIFICATION_SOUND);
         $this->RegisterPropertyInteger('ScriptMessage', 0);
+        $this->RegisterPropertyString('MessageKey', '');
 
         // Legacy properties (v3.x), migrated into the lists and the initial values of the status variables
         $this->RegisterPropertyBoolean('OpenValve', false);
@@ -1201,11 +1206,12 @@ class ContactSensor extends IPSModuleStrict
 
         // send notify?
         if ($isNotify && $swf) {
+            $sound = $this->ReadPropertyString('NotificationSound');
             if ($this->IsWebFrontVisuInstance($webfront)) {
-                WFC_PushNotification($webfront, $msgtitle, $txt, $img, 0);
+                WFC_PushNotification($webfront, $msgtitle, $txt, $sound, 0);
             }
             if ($this->IsTileVisuInstance($webfront)) {
-                VISU_PostNotificationEx($webfront, $msgtitle, $txt, $img, 'buzzer', 0);
+                VISU_PostNotificationEx($webfront, $msgtitle, $txt, $img, $sound, 0);
             }
         }
 
@@ -1224,8 +1230,18 @@ class ContactSensor extends IPSModuleStrict
                 if ($time > 0) {
                     $params['expires'] = time() + $time;
                 }
+                // Older message scripts ignore the key, so it is only passed if configured
+                $key = $this->ReadPropertyString('MessageKey');
+                if ($key !== '') {
+                    $params['key'] = $key;
+                }
                 $msg = (int) IPS_RunScriptWaitEx($msgscript, $params);
                 $this->WriteAttributeInteger($attribute, $msg);
+                // Same key updates the existing message, so the other message no longer exists on its own
+                $other = ($attribute === 'Message') ? 'AlertMessage' : 'Message';
+                if (($msg > 0) && ($this->ReadAttributeInteger($other) === $msg)) {
+                    $this->WriteAttributeInteger($other, 0);
+                }
             }
         }
     }

@@ -103,7 +103,9 @@ Offen länger als                     | Dauer, nach der beim Auslöser „Zu lan
 Nur wenn Außentemperatur unter       | Nachricht „Zu lange offen“ nur, wenn die Außentemperatur (Klimawerte) unter dem eingestellten Wert liegt; sonst wird minütlich erneut geprüft, solange der Sensor offen ist
 Format der Textmitteilung (zu lange offen) | Frei wählbares Format der Nachricht/Meldung „Zu lange offen“ (die Meldung wird beim Schließen aller Sensoren entfernt)
 Visualisierungs-Instanz              | ID der Visualisierung, an welches die Push-Nachrichten gesendet werden soll (WebFront oder TileVisu Instanz)
+Ton der Benachrichtigung             | Ton der Push-Nachricht (WebFront und Kachel-Visu, Standard: buzzer)
 Meldungsskript                       | Skript ID des Meldungsverwaltungsskripts
+Meldungsschlüssel (optional)         | Leer = jede Meldung wird neu hinzugefügt (wie bisher). Mit Schlüssel wird eine bestehende Meldung mit gleichem Schlüssel aktualisiert (Meldungsskript ab v8, ältere Skripte ignorieren den Schlüssel). Gleicher Schlüssel in mehreren Instanzen ergibt eine gemeinsame Meldung.
 
 > ⚙️ Erweiterte Einstellungen ...
 
@@ -199,6 +201,12 @@ _Hinweis:_ Das Script 'Meldungsanzeige im WebFront' (Meldungsverwaltung) wird un
 Das Modul stellt keine direkten Funktionsaufrufe zur Verfügung.
 
 ### 9. Versionshistorie
+
+v4.3.20261104
+
+* _NEU_: Ton der Push-Nachricht wählbar (WebFront und Kachel-Visu)
+* _NEU_: Optionaler Meldungsschlüssel für das Meldungsskript (ab v8: Aktualisieren statt erneut Hinzufügen)
+* _FIX_: Push-Nachricht im WebFront bekam den Icon-Namen statt des Tons
 
 v4.2.20261027
 
