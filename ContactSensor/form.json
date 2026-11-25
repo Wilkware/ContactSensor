@@ -245,6 +245,33 @@
                     "type": "Label",
                     "caption": "Window state: the window state variable of the thermostat or actuator (e.g. WINDOW_STATE for HmIP) is switched via RequestAction: open = true/1, closed = false/0.\nSetpoint temperature: the setpoint variable is lowered to the reduction temperature via RequestAction, on closing the previous setpoint is restored (unless it was changed meanwhile).",
                     "italic": true
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "NumberSpinner",
+                            "name": "VerifyAttempts",
+                            "caption": "Retries:",
+                            "minimum": 0,
+                            "maximum": 20,
+                            "width": "225px"
+                        },
+                        {
+                            "type": "NumberSpinner",
+                            "name": "VerifyInterval",
+                            "caption": "Check interval:",
+                            "suffix": "seconds",
+                            "minimum": 10,
+                            "maximum": 3600,
+                            "width": "225px"
+                        }
+                    ]
+                },
+                {
+                    "type": "Label",
+                    "caption": "After switching, it is checked whether the radiators have really taken over the value (e.g. if the device was briefly unreachable). If not, the value is sent again. 0 retries = no check.",
+                    "italic": true
                 }
             ]
         },

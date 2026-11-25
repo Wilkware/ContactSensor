@@ -56,6 +56,9 @@ class ContactSensor extends IPSModuleStrict
     /** @var float Max. deviation (K) at which the setpoint still counts as lowered */
     private const SETPOINT_TOLERANCE = 0.5;
 
+    /** @var int Min. seconds between two checks of the switched radiators */
+    private const VERIFY_MIN_INTERVAL = 10;
+
     /** @var int Message trigger: opening (bit) */
     private const MESSAGE_OPENING = 1;
 
@@ -178,6 +181,8 @@ class ContactSensor extends IPSModuleStrict
         // Heating system
         $this->RegisterPropertyString('RadiatorVariables', '[]');
         $this->RegisterPropertyInteger('ExecScript', 0);
+        $this->RegisterPropertyInteger('VerifyAttempts', 0);
+        $this->RegisterPropertyInteger('VerifyInterval', 60);
 
         // Advanced settings
         $this->RegisterPropertyBoolean('ContactState', false);
@@ -226,6 +231,7 @@ class ContactSensor extends IPSModuleStrict
         $this->RegisterTimer('RepeatTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Repeat', 0);");
         $this->RegisterTimer('SwitchTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Switch', 0);");
         $this->RegisterTimer('AlertTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Alert', 0);");
+        $this->RegisterTimer('VerifyTrigger', 0, "IPS_RequestAction(\$_IPS['TARGET'],'Verify', 0);");
 
         // Internal state
         $this->RegisterAttributeBoolean('Reduction', false);
@@ -405,6 +411,12 @@ class ContactSensor extends IPSModuleStrict
         // Status variables (own objects only)
         $this->MaintainStatusVariables();
 
+        // Check of the switched radiators switched off
+        if ($this->ReadPropertyInteger('VerifyAttempts') <= 0) {
+            $this->SetTimerInterval('VerifyTrigger', 0);
+            $this->SetBuffer('Verify', '');
+        }
+
         // Other objects are not reliably available before the kernel has started
         if (IPS_GetKernelRunlevel() !== KR_READY) {
             $this->RegisterMessage(0, IPS_KERNELSTARTED);
@@ -550,6 +562,9 @@ class ContactSensor extends IPSModuleStrict
                 break;
             case 'Alert':
                 $this->Alert();
+                return;
+            case 'Verify':
+                $this->Verify();
                 return;
             case 'TestReduction':
                 if (empty($this->GetRadiators()) && ($this->ReadPropertyInteger('ExecScript') < self::IPS_MIN_ID)) {
@@ -902,6 +917,7 @@ class ContactSensor extends IPSModuleStrict
     private function SwitchRadiators(bool $open): int
     {
         $failed = 0;
+        $pending = [];
         foreach ($this->GetRadiators() as $radiator) {
             $id = $radiator['VariableID'];
             $vid = $this->ResolveRadiatorVariable($id);
@@ -911,7 +927,7 @@ class ContactSensor extends IPSModuleStrict
                 continue;
             }
             if ($radiator['Mode'] === self::RADIATOR_SETPOINT) {
-                if (!$this->SwitchSetpoint($vid, $radiator['Temperature'], $open)) {
+                if (!$this->SwitchSetpoint($vid, $radiator['Temperature'], $open, $pending)) {
                     $failed++;
                 }
                 continue;
@@ -927,14 +943,112 @@ class ContactSensor extends IPSModuleStrict
                 $failed++;
                 continue;
             }
+            $previous = GetValue($vid);
             $ret = @RequestAction($vid, $value);
             if ($ret === false) {
                 $this->LogMessage('Radiator variable #' . $vid . ' could not be switched by RequestAction!', KL_ERROR);
                 $failed++;
             }
+            $pending[$vid] = ['Mode' => self::RADIATOR_WINDOW, 'Value' => $value, 'Previous' => $previous];
             $this->LogDebug(__FUNCTION__, 'Radiator #' . $vid . ' => ' . ($open ? 'OPEN' : 'CLOSE') . ' (' . $this->Stringify($ret) . ')');
         }
+        $this->StartVerification($pending);
         return $failed;
+    }
+
+    /**
+     * Starts the check whether the switched radiators have really taken over their values.
+     * A new switching replaces a running check (e.g. closing during the check of the lowering).
+     *
+     * @param array<int,array{Mode:int,Value:mixed,Previous:mixed}> $pending Switched radiators
+     *
+     * @return void
+     */
+    private function StartVerification(array $pending): void
+    {
+        if (empty($pending) || ($this->ReadPropertyInteger('VerifyAttempts') <= 0)) {
+            $this->SetTimerInterval('VerifyTrigger', 0);
+            $this->SetBuffer('Verify', '');
+            return;
+        }
+        $this->SetBuffer('Verify', json_encode(['Attempt' => 0, 'Radiators' => $pending]));
+        $this->SetTimerInterval('VerifyTrigger', $this->GetVerifyInterval());
+    }
+
+    /**
+     * Verify - checks whether the switched radiators have taken over their values and switches them again if not
+     * (e.g. the device was not reachable for a short time).
+     *
+     * @return void
+     */
+    private function Verify(): void
+    {
+        $this->SetTimerInterval('VerifyTrigger', 0);
+        $verify = json_decode($this->GetBuffer('Verify'), true);
+        if (!is_array($verify) || empty($verify['Radiators']) || !is_array($verify['Radiators'])) {
+            return;
+        }
+        $attempt = (int) ($verify['Attempt'] ?? 0) + 1;
+        $attempts = $this->ReadPropertyInteger('VerifyAttempts');
+        $pending = [];
+        foreach ($verify['Radiators'] as $vid => $radiator) {
+            $vid = (int) $vid;
+            if (!IPS_VariableExists($vid)) {
+                continue;
+            }
+            $mode = (int) $radiator['Mode'];
+            $current = GetValue($vid);
+            if ($this->IsRadiatorValue($mode, $current, $radiator['Value'])) {
+                $this->LogDebug(__FUNCTION__, 'Radiator #' . $vid . ' is switched (' . $this->Stringify($current) . ')');
+                continue;
+            }
+            // A setpoint changed meanwhile (manually or by a schedule) is not overwritten
+            if (($mode === self::RADIATOR_SETPOINT) && !$this->IsRadiatorValue($mode, $current, $radiator['Previous'])) {
+                $this->LogDebug(__FUNCTION__, 'Setpoint #' . $vid . ' was changed meanwhile (' . $this->Stringify($current) . '), no retry!');
+                continue;
+            }
+            if ($attempt > $attempts) {
+                $this->LogMessage('Radiator variable #' . $vid . ' has not taken over the value ' . $this->Stringify($radiator['Value']) . ' after ' . $attempts . ' retries!', KL_WARNING);
+                continue;
+            }
+            $ret = @RequestAction($vid, $radiator['Value']);
+            $this->LogDebug(__FUNCTION__, 'Radiator #' . $vid . ': retry ' . $attempt . '/' . $attempts . ' => ' . $this->Stringify($radiator['Value']) . ' (' . $this->Stringify($ret) . ')');
+            $pending[$vid] = $radiator;
+        }
+        if (empty($pending)) {
+            $this->SetBuffer('Verify', '');
+            return;
+        }
+        $this->SetBuffer('Verify', json_encode(['Attempt' => $attempt, 'Radiators' => $pending]));
+        $this->SetTimerInterval('VerifyTrigger', $this->GetVerifyInterval());
+    }
+
+    /**
+     * Compares the value of a radiator variable with an expected value.
+     *
+     * @param int   $mode     Radiator mode (RADIATOR_WINDOW or RADIATOR_SETPOINT)
+     * @param mixed $current  Current value
+     * @param mixed $expected Expected value
+     *
+     * @return bool True if the values match
+     */
+    private function IsRadiatorValue(int $mode, mixed $current, mixed $expected): bool
+    {
+        if ($mode === self::RADIATOR_SETPOINT) {
+            // Devices round the setpoint to their step size (e.g. 0.5 K for HmIP)
+            return abs((float) $current - (float) $expected) < self::SETPOINT_TOLERANCE;
+        }
+        return (bool) $current === (bool) $expected;
+    }
+
+    /**
+     * Returns the interval between two checks of the switched radiators.
+     *
+     * @return int Interval in milliseconds
+     */
+    private function GetVerifyInterval(): int
+    {
+        return max(self::VERIFY_MIN_INTERVAL, $this->ReadPropertyInteger('VerifyInterval')) * 1000;
     }
 
     /**
@@ -944,10 +1058,11 @@ class ContactSensor extends IPSModuleStrict
      * @param int   $vid         Setpoint variable ID
      * @param float $temperature Setpoint temperature during reduction
      * @param bool  $open        True for OPEN (lower), false for CLOSE (restore)
+     * @param array<int,array{Mode:int,Value:mixed,Previous:mixed}> $pending Switched radiators to be checked
      *
      * @return bool False if the setpoint could not be switched
      */
-    private function SwitchSetpoint(int $vid, float $temperature, bool $open): bool
+    private function SwitchSetpoint(int $vid, float $temperature, bool $open, array &$pending): bool
     {
         $type = IPS_GetVariable($vid)['VariableType'];
         if (!in_array($type, [VARIABLETYPE_INTEGER, VARIABLETYPE_FLOAT], true)) {
@@ -982,16 +1097,16 @@ class ContactSensor extends IPSModuleStrict
             }
         }
 
-        $ret = @RequestAction($vid, ($type === VARIABLETYPE_INTEGER) ? (int) round($value) : $value);
+        $value = ($type === VARIABLETYPE_INTEGER) ? (int) round($value) : $value;
+        $ret = @RequestAction($vid, $value);
         if ($ret === false) {
             $this->LogMessage('Setpoint variable #' . $vid . ' could not be switched by RequestAction!', KL_ERROR);
-            // Lowering failed: nothing to restore; restoring failed: keep the value for the next attempt
-            if ($open) {
-                unset($setpoints[$vid]);
-            } else {
+            // Lowering failed: keep the remembered value, the check may still lower it; restoring failed: keep it for the next attempt
+            if (!$open) {
                 $setpoints[$vid] = $value;
             }
         }
+        $pending[$vid] = ['Mode' => self::RADIATOR_SETPOINT, 'Value' => $value, 'Previous' => $current];
         $this->WriteAttributeString('Setpoints', json_encode($setpoints));
         $this->LogDebug(__FUNCTION__, 'Setpoint #' . $vid . ' => ' . $value . ' (' . $this->Stringify($ret) . ')');
         return $ret !== false;

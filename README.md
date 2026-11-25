@@ -35,6 +35,7 @@ Wer die Meldungsverwaltung (Thema: [Meldungsanzeige im WebFront](https://www.sym
   * der Differenz zwischen Außen- und Innentemperatur
   * Wiederholtes Testen der Bedingungen nach einstellbarer Zeit
 * Automatisches Aufheben der Absenkung unabhängig vom Zustand der Sensoren
+* Prüfung, ob die Heizkörper den geschalteten Wert wirklich übernommen haben, mit erneutem Senden (z.B. nach kurzem Zigbee-Ausfall)
 * Nachrichten an Meldungsverwaltung und Visualisierung beim Öffnen, Schließen und bei zu lange geöffnetem Fenster (optional nur unterhalb einer Außentemperatur)
 * Statusvariablen zum Steuern des bedingten Schaltens (z.B. über die Kachel-Visualisierung)
 * Testfunktionen im Aktionsbereich der Konfiguration
@@ -78,6 +79,8 @@ _Hinweis:_ Ob Ventilstellung und Temperaturdifferenz (auch wiederholt) geprüft 
 Name                            | Beschreibung
 ------------------------------- | -----------------------------------------------------------------
 Heizkörper                      | Liste der zu schaltenden Variablen der Thermostate bzw. Stellantriebe mit Modus je Eintrag, Schalten per RequestAction:<br>_Fensterstatus_: offen = true/1, geschlossen = false/0<br>_Solltemperatur_: Absenken auf die _Absenktemperatur_ (im Bearbeiten-Dialog nur in diesem Modus einstellbar), beim Schließen wird der vorherige Sollwert wiederhergestellt (nicht, wenn er zwischenzeitlich manuell oder per Wochenprogramm verändert wurde)
+Wiederholungen                  | Anzahl erneuter Schaltversuche, falls ein Heizkörper den Wert nach dem Schalten (Absenken oder Aufheben) nicht übernommen hat, z.B. weil das Gerät kurzzeitig nicht erreichbar war (Zigbee, Funk); 0 = keine Prüfung (Standard), z.B. 5<br>Ein zwischenzeitlich manuell oder per Wochenprogramm veränderter Sollwert wird nicht überschrieben, nach erfolglosen Versuchen erscheint eine Warnung in den Meldungen
+Prüfintervall                   | Zeit in Sekunden bis zur Prüfung nach dem Schalten bzw. zwischen den Wiederholungen (Standard: 60)
 
 > 🌡️ Klimawerte ...
 
@@ -201,6 +204,10 @@ _Hinweis:_ Das Script 'Meldungsanzeige im WebFront' (Meldungsverwaltung) wird un
 Das Modul stellt keine direkten Funktionsaufrufe zur Verfügung.
 
 ### 9. Versionshistorie
+
+v4.4.20261125
+
+* _NEU_: Prüfung, ob die Heizkörper den Wert nach dem Absenken bzw. Aufheben wirklich übernommen haben, mit einstellbaren Wiederholungen und Prüfintervall
 
 v4.3.20261104
 
